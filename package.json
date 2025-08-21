@@ -1,0 +1,10 @@
+{
+  "name": "rewards-pass",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "start": "serve -s .",
+    "build": "echo 'static'"
+  },
+  "engines": { "node": ">=18" }
+}
