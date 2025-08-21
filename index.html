@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Universal Rewards Pass</title>
+
+  <!-- iOS fullscreen feel -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+  <!-- Tailwind (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- QR & Barcode (browser builds) -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+
+  <style>
+    html, body { height: 100%; background: #fafafa; }
+    .ring-focus:focus { outline: none; box-shadow: 0 0 0 3px rgba(0,0,0,.2); }
+  </style>
+</head>
+<body class="min-h-screen text-gray-900">
+  <div class="max-w-5xl mx-auto py-5 px-4">
+    <header class="flex items-center justify-between gap-2 mb-4">
+      <h1 class="text-xl font-semibold">Universal Rewards Pass</h1>
+      <div class="flex items-center gap-2">
+        <button id="geoToggle" class="px-3 py-1.5 text-sm rounded-xl border bg-white">Manual</button>
+        <button id="addBtn" class="px-3 py-1.5 text-sm rounded-xl border bg-white">Add</button>
+      </div>
+    </header>
+
+    <div class="grid lg:grid-cols-3 gap-5">
+      <aside class="lg:col-span-1">
+        <div class="rounded-2xl border bg-white p-3">
+          <div class="text-xs uppercase tracking-wider opacity-60 mb-2">Your Cards</div>
+          <div id="list" class="space-y-2 max-h-[60vh] overflow-auto pr-1"></div>
+          <template id="cardTpl">
+            <div class="rounded-2xl border p-4 hover:shadow-sm transition bg-white flex items-center justify-between">
+              <div class="min-w-0">
+                <div class="font-semibold text-sm merchant"></div>
+                <div class="text-xs opacity-70 hint"></div>
+                <div class="text-[10px] uppercase tracking-wider mt-1 opacity-60 type"></div>
+              </div>
+              <div class="flex items-center gap-2 ml-3 shrink-0">
+                <div class="geoBadge hidden text-[10px] bg-black text-white rounded-full px-2 py-0.5">Geo</div>
+                <button class="edit px-2 py-1 text-xs rounded-lg border">Edit</button>
+                <button class="del px-2 py-1 text-xs rounded-lg border">Delete</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </aside>
+
+      <main class="lg:col-span-2">
+        <div id="scanner" class="rounded-2xl border bg-white p-4">
+          <div class="text-xs uppercase tracking-wider opacity-60">Ready to scan</div>
+          <div id="scanMerchant" class="text-xl font-semibold">—</div>
+          <div id="scanHint" class="text-xs opacity-70 mt-0.5"></div>
+          <div class="mt-3 rounded-xl bg-gray-50 p-3 flex items-center justify-center min-h-48">
+            <img id="qrImg" alt="QR" class="hidden w-full max-w-[420px]" />
+            <canvas id="barCanvas" class="hidden w-full max-w-[720px]"></canvas>
+            <div id="scanPlaceholder" class="text-sm opacity-60">Select a card to show its code</div>
+          </div>
+          <div class="text-[11px] opacity-60 mt-2">
+            Tip: Max brightness helps scanners. Rotating codes (some merchants) will need deep-links to official apps.
+          </div>
+        </div>
+
+        <div class="grid sm:grid-cols-2 gap-3 mt-4">
+          <div class="rounded-2xl border bg-white p-4">
+            <div class="text-sm font-semibold mb-1">Tips</div>
+            <ul class="text-sm list-disc pl-5 opacity-80 space-y-1">
+              <li>For most barcodes, use <b>Code128</b> with your member #.</li>
+              <li>For static QR programs, paste the raw payload/text.</li>
+              <li>Add a store location to auto-select when nearby.</li>
+            </ul>
+          </div>
+          <div class="rounded-2xl border bg-white p-4">
+            <div class="text-sm font-semibold mb-1">Geofencing</div>
+            <div class="text-sm opacity-80">Toggle <b>Auto</b> to auto-select the nearest saved store (≈150 m).</div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal" class="hidden fixed inset-0 bg-black/40 z-50 items-center justify-center p-4">
+    <div class="bg-white w-full max-w-lg rounded-2xl p-5">
+      <div class="text-lg font-semibold mb-3" id="modalTitle">Add Card</div>
+      <div class="grid gap-3">
+        <label class="text-sm">Merchant
+          <input id="fMerchant" class="ring-focus mt-1 w-full border rounded-xl px-3 py-2" placeholder="e.g., QDOBA, Target, Lowe's">
+        </label>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="text-sm">Code Type
+            <select id="fType" class="ring-focus mt-1 w-full border rounded-xl px-3 py-2">
+              <option value="qr">QR Code</option>
+              <option value="code128">Code128</option>
+            </select>
+          </label>
+          <label class="text-sm">Brand Color
+            <input id="fColor" type="color" value="#111827" class="mt-1 w-full h-[42px] border rounded-xl px-3 py-2">
+          </label>
+        </div>
+        <label class="text-sm">Code Value / Data
+          <input id="fValue" class="ring-focus mt-1 w-full border rounded-xl px-3 py-2" placeholder="membership # or QR payload">
+        </label>
+        <label class="text-sm">Display Hint (optional)
+          <input id="fHint" class="ring-focus mt-1 w-full border rounded-xl px-3 py-2" placeholder="****5678 or email tail">
+        </label>
+        <div class="flex items-center gap-2 mt-1">
+          <input id="fLocEn" type="checkbox">
+          <label for="fLocEn" class="text-sm">Add store location (lat/lng)</label>
+        </div>
+        <div id="locFields" class="grid grid-cols-2 gap-3 hidden">
+          <label class="text-sm">Latitude
+            <input id="fLat" class="ring-focus mt-1 w-full border rounded-xl px-3 py-2" placeholder="e.g., 38.293">
+          </label>
+          <label class="text-sm">Longitude
+            <input id="fLng" class="ring-focus mt-1 w-full border rounded-xl px-3 py-2" placeholder="e.g., -85.760">
+          </label>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 mt-5">
+        <button id="cancelBtn" class="px-4 py-2 rounded-xl border bg-white">Cancel</button>
+        <button id="saveBtn" class="px-4 py-2 rounded-xl bg-black text-white">Save</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function() {
+  // ---- Utilities ----
+  const $ = sel => document.querySelector(sel);
+  const lsGet = (k, fb) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } };
+  const lsSet = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+  const uid = () => (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now())+Math.random();
+
+  function haversine(a, b) {
+    const R = 6371e3, toRad = d => d * Math.PI / 180;
+    const dPhi = toRad(b.lat - a.lat), dLam = toRad(b.lng - a.lng);
+    const s = Math.sin(dPhi/2)**2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLam/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(s));
+  }
+
+  // ---- State ----
+  let passes = lsGet('passes', [
+    { id: uid(), merchant: 'QDOBA',  codeType: 'qr',     value: 'qdoba:acct:john_doe@example.com', displayHint: 'john_doe@…', color: '#ffc107', location: null },
+    { id: uid(), merchant: 'Target', codeType: 'code128', value: '490012345678', displayHint: 'Circle: ****5678', color: '#cc0000', location: null },
+    { id: uid(), merchant: "Lowe's", codeType: 'code128', value: '8392011223344', displayHint: 'Pro ****1122', color: '#004a87', location: null },
+  ]);
+  let selectedId = null;
+  let geoEnabled = false;
+  let watchId = null;
+  let userLoc = null;
+
+  const listEl = $('#list');
+  const cardTpl = $('#cardTpl');
+  const geoBtn = $('#geoToggle');
+
+  const scanMerchant = $('#scanMerchant');
+  const scanHint = $('#scanHint');
+  const qrImg = $('#qrImg');
+  const barCanvas = $('#barCanvas');
+  const scanPlaceholder = $('#scanPlaceholder');
+
+  function saveState() { lsSet('passes', passes); }
+
+  // ---- Rendering ----
+  function renderList() {
+    listEl.innerHTML = '';
+    passes.forEach(p => {
+      const node = cardTpl.content.firstElementChild.cloneNode(true);
+      node.style.background = (p.color ? p.color + '10' : 'white');
+      node.querySelector('.merchant').textContent = p.merchant;
+      node.querySelector('.hint').textContent = p.displayHint || '';
+      node.querySelector('.type').textContent = p.codeType === 'qr' ? 'QR Code' : 'Code128';
+      if (p.location) node.querySelector('.geoBadge').classList.remove('hidden');
+
+      node.addEventListener('click', () => { selectedId = p.id; renderScanner(); highlightSelection(node); });
+      node.querySelector('.del').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!confirm('Delete this card?')) return;
+        passes = passes.filter(x => x.id !== p.id);
+        if (selectedId === p.id) selectedId = null;
+        saveState(); renderList(); renderScanner();
+      });
+      node.querySelector('.edit').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openModal(p);
+      });
+
+      listEl.appendChild(node);
+    });
+  }
+
+  function highlightSelection(node) {
+    [...listEl.children].forEach(ch => ch.classList.remove('ring-2', 'ring-black'));
+    node.classList.add('ring-2','ring-black');
+  }
+
+  async function renderScanner() {
+    const p = passes.find(x => x.id === selectedId);
+    scanPlaceholder.classList.add('hidden');
+    qrImg.classList.add('hidden');
+    barCanvas.classList.add('hidden');
+
+    if (!p) {
+      scanMerchant.textContent = '—';
+      scanHint.textContent = '';
+      scanPlaceholder.classList.remove('hidden');
+      return;
+    }
+    scanMerchant.textContent = p.merchant;
+    scanHint.textContent = p.displayHint || '';
+
+    if (p.codeType === 'qr') {
+      try {
+        const url = await QRCode.toDataURL(p.value, { width: 720, margin: 1 });
+        qrImg.src = url;
+        qrImg.classList.remove('hidden');
+      } catch (e) {
+        alert('Failed to render QR: ' + e.message);
+      }
+    } else {
+      try {
+        const ctx = barCanvas.getContext('2d');
+        barCanvas.width = 720; barCanvas.height = 220; ctx.clearRect(0,0,720,220);
+        JsBarcode(barCanvas, p.value, { format: "CODE128", displayValue: true, margin: 10 });
+        barCanvas.classList.remove('hidden');
+      } catch (e) {
+        alert('Failed to render barcode: ' + e.message);
+      }
+    }
+  }
+
+  // ---- Modal (Add/Edit) ----
+  const modal = $('#modal');
+  const modalTitle = $('#modalTitle');
+  const fMerchant = $('#fMerchant');
+  const fType = $('#fType');
+  const fColor = $('#fColor');
+  const fValue = $('#fValue');
+  const fHint = $('#fHint');
+  const fLocEn = $('#fLocEn');
+  const fLat = $('#fLat');
+  const fLng = $('#fLng');
+  const locFields = $('#locFields');
+  let editing = null;
+
+  function openModal(existing) {
+    editing = existing || null;
+    modalTitle.textContent = editing ? 'Edit Card' : 'Add Card';
+    fMerchant.value = existing?.merchant ?? '';
+    fType.value = existing?.codeType ?? 'qr';
+    fColor.value = existing?.color ?? '#111827';
+    fValue.value = existing?.value ?? '';
+    fHint.value = existing?.displayHint ?? '';
+    if (existing?.location) {
+      fLocEn.checked = true; locFields.classList.remove('hidden');
+      fLat.value = existing.location.lat; fLng.value = existing.location.lng;
+    } else {
+      fLocEn.checked = false; locFields.classList.add('hidden');
+      fLat.value = ''; fLng.value = '';
+    }
+    modal.classList.remove('hidden');
+    fMerchant.focus();
+  }
+
+  function closeModal() { modal.classList.add('hidden'); }
+
+  $('#addBtn').addEventListener('click', () => openModal());
+  $('#cancelBtn').addEventListener('click', closeModal);
+  fLocEn.addEventListener('change', () => {
+    if (fLocEn.checked) locFields.classList.remove('hidden'); else locFields.classList.add('hidden');
+  });
+  $('#saveBtn').addEventListener('click', () => {
+    const merchant = fMerchant.value.trim();
+    const codeType = fType.value;
+    const color = fColor.value;
+    const value = fValue.value.trim();
+    const displayHint = fHint.value.trim();
+    if (!merchant || !value) return alert('Merchant and code value are required.');
+
+    const loc = fLocEn.checked ? { lat: Number(fLat.value), lng: Number(fLng.value) } : null;
+    const item = {
+      id: editing?.id ?? uid(),
+      merchant, codeType, value, displayHint, color, location: loc
+    };
+    if (editing) {
+      passes = passes.map(x => x.id === editing.id ? item : x);
+    } else {
+      passes = [item, ...passes];
+    }
+    saveState(); renderList(); closeModal();
+  });
+
+  // ---- Geolocation auto-select ----
+  function setGeoEnabled(on) {
+    geoEnabled = on;
+    $('#geoToggle').textContent = on ? 'Auto' : 'Manual';
+    if (on) {
+      if (!navigator.geolocation) return alert('Geolocation not supported in this browser.');
+      watchId = navigator.geolocation.watchPosition(pos => {
+        userLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        const withLoc = passes.filter(p => !!p.location);
+        if (withLoc.length === 0) return;
+        let best = null, bestD = Infinity;
+        for (const it of withLoc) {
+          const d = haversine(userLoc, it.location);
+          if (d < bestD) { best = it; bestD = d; }
+        }
+        if (best && bestD < 150) {
+          selectedId = best.id;
+          renderScanner();
+          // highlight selection
+          const idx = passes.findIndex(x => x.id === best.id);
+          const node = listEl.children[idx];
+          if (node) highlightSelection(node);
+        }
+      }, err => {
+        alert('Location error: ' + err.message);
+      });
+    } else {
+      if (navigator.geolocation && watchId != null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+    }
+  }
+  geoBtn.addEventListener('click', () => setGeoEnabled(!geoEnabled));
+
+  // ---- Init ----
+  renderList();
+  renderScanner();
+})();
+</script>
+</body>
+</html>
